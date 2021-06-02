@@ -25,8 +25,8 @@ PATH_muts = "/groups/wyattgrp/users/amunzur/ind232/data/ind232_muts.csv"
 PATH_figure = "/groups/wyattgrp/users/amunzur/ind232/figures/ind232_oncoprint.pdf"
 
 patient_id = "" # leave blank (an empty string) to show all patients
-filter_ctDNA = False # True means only keep the sample with higher ctDNA content from a patient. Or write False to keep all samples
-sort_sample_type = True # gather together EOT and baseline samples. Otherwise no ordering
+filter_ctDNA = True # True means only keep the sample with higher ctDNA content from a patient. Or write False to keep all samples
+sort_sample_type = False # gather together EOT and baseline samples.
 
 ########################
 # READ FILES
@@ -86,9 +86,6 @@ if sort_sample_type == True:
     df_cn = df_cn.reset_index(drop = True)
     df_muts = df_muts.reset_index(drop = True)
     
-# sort df_cn once more based on ctDNA fraction, from high to low
-df_cn = df_cn.sort_values(by = ["ctDNA fraction"])
-    
 ########################
 # COLORS and SHAPES
 ########################
@@ -114,8 +111,19 @@ df_muts["shapes"] = df_muts["Effect"].map(shape_dict)
 ########################
 # DIVIDE THE DATAFRAMES
 ########################
-[df_cn1, df_cn2] = filter_df_by_col(df_cn, "Responder_status") # not responsive
-[df_muts1, df_muts2] = filter_df_by_col(df_muts, "Responder_status") # responsive
+[df_cn1, df_cn2] = filter_df_by_col(df_cn, "Responder_status")
+[df_muts1, df_muts2] = filter_df_by_col(df_muts, "Responder_status")
+
+# sort df_cn once more based on ctDNA fraction, from high to low
+df_cn1 = df_cn1.sort_values(by = ["ctDNA fraction"])
+df_cn2 = df_cn2.sort_values(by = ["ctDNA fraction"])
+
+# sort dfs based on patient id 
+# df_cn1 = df_cn1.sort_values('Sample')
+# df_cn2 = df_cn2.sort_values('Sample')
+
+# df_muts1 = df_muts1.sort_values('Sample')
+# df_muts2 = df_muts2.sort_values('Sample')
 
 [df_cn1_repair, df_cn1_other] = filter_by_genes(df_cn1)
 [df_cn2_repair, df_cn2_other] = filter_by_genes(df_cn2)
@@ -181,23 +189,18 @@ bar_width = 0.7
 offset = -0.4
 
 fig = plt.figure(figsize=(fig_width, fig_height))
-gs  = gridspec.GridSpec(nrows=5, ncols=4, height_ratios = [1.8, 1.8, 4, 7, 7], width_ratios = [7, 0.5, 1.3, 0.5], wspace = 0.02, hspace=0.02)
+gs  = gridspec.GridSpec(nrows=5, ncols=2, height_ratios = [1.8, 1.8, 4, 7, 7], width_ratios = [7, 1.7], wspace = 0.02, hspace=0.02)
 # gs.update(wspace=0.015, hspace=0.05)# set the spacing between axes. 
 
 top1 = fig.add_subplot(gs[0,0]) # ctDNA
 mutcount1 = fig.add_subplot(gs[1,0], sharex = top1) # mut count
 bottom1_repair = fig.add_subplot(gs[2,0], sharex = mutcount1) # heatmap - repair genes
 bottom1_other = fig.add_subplot(gs[3,0], sharex = mutcount1) # heatmap - other genes
-count1_repair = fig.add_subplot(gs[2,1], sharey = bottom1_repair)
-count1_other = fig.add_subplot(gs[3,1], sharey = bottom1_other, sharex = count1_repair)
 
-
-top2 = fig.add_subplot(gs[0,2], sharey = top1) # ctDNA
-mutcount2 = fig.add_subplot(gs[1,2], sharex = top2, sharey = mutcount1) # mutcount
-bottom2_repair = fig.add_subplot(gs[2,2], sharex = mutcount2) #heatmap - repair genes
-bottom2_other = fig.add_subplot(gs[3,2], sharex = mutcount2) # heatmap - other genes
-count2_repair = fig.add_subplot(gs[2, 3], sharey = bottom2_repair)
-count2_other = fig.add_subplot(gs[3, 3], sharey = bottom2_other, sharex = count2_repair)
+top2 = fig.add_subplot(gs[0,1], sharey = top1) # ctDNA
+mutcount2 = fig.add_subplot(gs[1,1], sharex = top2, sharey = mutcount1) # mutcount
+bottom2_repair = fig.add_subplot(gs[2,1], sharex = mutcount2) #heatmap - repair genes
+bottom2_other = fig.add_subplot(gs[3,1], sharex = mutcount2) # heatmap - other genes
 
 sub_legend = fig.add_subplot(gs[4,:])
 
@@ -226,59 +229,12 @@ plot_muts(sample_pos1, gene_pos_other, df_muts1_other, bottom1_other)
 plot_muts(sample_pos2, gene_pos_repair, df_muts2_repair, bottom2_repair)
 plot_muts(sample_pos2, gene_pos_other, df_muts2_other, bottom2_other)
 
-# plot CN and mut count bar graphs 
-width = 0.315
-
-cn_repair = dict(zip(gene_pos_repair.keys(), [x - width/2.7 for x in gene_pos_repair.values()]))
-mut_repair = dict(zip(gene_pos_repair.keys(), [x - width/1.92 - 0.07 for x in gene_pos_repair.values()]))
-
-cn_other = dict(zip(gene_pos_other.keys(), [x + width/2.7 for x in gene_pos_other.values()]))
-mut_other = dict(zip(gene_pos_other.keys(), [x - width/1.92 - 0.07 for x in gene_pos_other.values()]))
-
-count1_repair.barh(list(cn_repair.values()), df_counts1_repair.CN_changes_perc, width, color = "#B0B0B0")
-count1_repair.barh(list(mut_repair.values()), df_counts1_repair.Mutation_events_perc, width, color = "#404040")
-
-count1_other.barh(list(cn_other.values()), df_counts1_other.CN_changes_perc, width, color = "#B0B0B0")
-count1_other.barh(list(mut_other.values()), df_counts1_other.Mutation_events_perc, width, color = "#404040")
-
-count2_repair.barh(list(cn_repair.values()), df_counts2_repair.CN_changes_perc, width, color = "#B0B0B0")
-count2_repair.barh(list(mut_repair.values()), df_counts2_repair.Mutation_events_perc, width, color = "#404040")
-
-count2_other.barh(list(cn_other.values()), df_counts2_other.CN_changes_perc, width, color="#B0B0B0")
-count2_other.barh(list(mut_other.values()), df_counts2_other.Mutation_events_perc, width, color="#404040")
-
 ########################
 # STYLING
 ########################
 for ax in [top2, mutcount2]:
     ax.xaxis.set_visible(False)
     
-    # counts bar graphs
-for ax in [count1_repair, count2_repair]: 
-    ax.spines['right'].set_visible(False)
-    ax.spines['left'].set_visible(False)
-    ax.spines['top'].set_visible(False)
-    ax.spines['bottom'].set_linewidth(False)
-    ax.tick_params(axis='x', length=0)
-    plt.setp(ax.get_xticklabels(), visible=False)
-    ax.tick_params(axis='y', length=0)
-    plt.setp(ax.get_yticklabels(), visible=False)
-
-    # ax.set_xticks([])
-    # ax.set_yticks([])
-
-for ax in [count1_other, count2_other]: 
-    ax.tick_params(labelrotation = 90, direction = "out", pad = 0.2)
-    ax.set_xticks([0, 50, 100])
-    ax.set_xticklabels(["0", "50", "100"])
-    ax.xaxis.set_tick_params(width = 0.5)
-    ax.spines['right'].set_visible(False)
-    ax.spines['left'].set_visible(False)
-    ax.spines['top'].set_visible(False)
-    ax.spines['bottom'].set_linewidth(0.5)
-    ax.tick_params(axis='y', length=0)
-    plt.setp(ax.get_yticklabels(), visible=False)
-
 top1.set_xticks([])
 top1.set_yticks([0, 25, 50, 75, 100])
 top1.set_yticklabels(["0", "25", "50", "75", "100"])
@@ -317,9 +273,9 @@ bottom1_other.set_xlim([-1, len(samples1) - 0.5])
 bottom1_other.set_xticklabels(ordered_patients_list1, ha = "center")
 
 bottom2_other.yaxis.set_visible(False)
-bottom2_other.tick_params(labelrotation = 90, direction = "out", pad = 7)
+bottom2_other.tick_params(labelrotation = 90, direction = "out", pad = 3)
 bottom2_other.set_xticks(list(range(0, len(ordered_patients_list2))))
-bottom2_other.set_xticklabels(ordered_patients_list2)
+bottom2_other.set_xticklabels(ordered_patients_list2, ha = "center")
 bottom2_other.set_xlim([-1, len(samples2) - 0.55])
 
 sub_legend.xaxis.set_visible(False)
@@ -334,17 +290,23 @@ for ax in [top1, top2, mutcount1, mutcount2, bottom1_repair, bottom2_repair, bot
     
     ax.xaxis.set_ticks_position('none')
     ax.yaxis.set_ticks_position('none')
-   
+    
+bottom2_other.set_xticklabels(ordered_patients_list2, ha = "center")
+
 ########################
 # LINES
 ########################
+# plt.vlines(x = -2, ymin = 2.8, ymax = 6, color='black', linestyle='-')
+# plt.axvline(x = 0, ymin = 0.85, ymax = 0.99, color='black', linestyle='-')
 
-y_position = 0.72
-plt.axhline(y = y_position, xmin = 0.01, xmax = bottom1_repair.get_position().x1 + 0.03, color='black', linestyle='-')
-plt.axhline(y = y_position, xmin = 0.795, xmax = 0.94, color='black', linestyle='-')
 
-plt.text(0.28, y_position - 0.06, "Best response PD", fontsize = 9)
-plt.text(0.84, y_position - 0.06, "PR/SD", fontsize = 9)
+
+# y_position = 0.72
+# plt.axhline(y = y_position, xmin = 0.3, xmax = bottom1_repair.get_position().x1 + 0.06, color='black', linestyle='-')
+# plt.axhline(y = y_position, xmin = 0.83, xmax = 0.99, color='black', linestyle='-')
+
+# plt.text(0.35, y_position - 0.06, "Best response PD", fontsize = 9)
+# plt.text(0.88, y_position - 0.06, "PR/SD", fontsize = 9)
     
 ########################
 # LEGEND
@@ -352,7 +314,7 @@ plt.text(0.84, y_position - 0.06, "PR/SD", fontsize = 9)
     
 legend_cn_dict = {"Deep deletion":'#3f60ac', "Deletion":'#9cc5e9', "Neutral":'#e6e7e8', "Gain":'#f59496', "Amplification":'#ee2d24'}
 
-mut_dict = {'Missense':'#79B443', 'Splice site, stopgain, frameshift':'#FFC907', 'Frameshift indel':'#5c32a8', 'Non-frameshift indel':'#BD4398', "Structural rearrangement": "#FF5733"}
+mut_dict = {'Missense':'#79B443', 'Splice site, stopgain, frameshift':'#FFC907', 'Frameshift indel':'#5c32a8', 'Non-frameshift indel':'#BD4398', "Structural rearrangement": "#FF5733", 'Intragenic arrangement': "#a3dcf7"}
 
 mut_dict_shape = {'Somatic':'s', 'Germline':'*', '>2 mutations': '^'}
 mut_dict_shape_color = {'Somatic':'#B0B0B0', 'Germline':'#B0B0B0', '>2 mutations': 'black'}
@@ -381,10 +343,10 @@ for key in mut_dict_shape:
     handle = Line2D([0], [0], linestyle = "none", marker = mut_dict_shape.get(key), label = key, markerfacecolor = mut_dict.get(key), color = mut_dict_shape_color.get(key), markersize=5)
     handles_mut_shapes.append(handle)
 
-legend1 = fig.legend(handles=handles_cn, bbox_to_anchor=(0.29, y_position - 0.45), frameon=False, title = "Copy number variants", title_fontsize = 7)
-legend2 = fig.legend(handles=handles_muts, bbox_to_anchor=(0.52, y_position - 0.45), frameon=False, title = "Mutations", title_fontsize = 7)
-legend3 = fig.legend(handles=handles_counts, bbox_to_anchor=(0.71, y_position - 0.45), frameon=False, title = "Copy number change and \nmutation percentages", title_fontsize = 7)
-legend4 = fig.legend(handles=handles_mut_shapes, bbox_to_anchor=(0.42, y_position - 0.53), frameon=False)
+legend1 = fig.legend(handles=handles_cn, bbox_to_anchor=(0.28, y_position - 0.45), frameon=False, title = "Copy number variants", title_fontsize = 7)
+legend2 = fig.legend(handles=handles_muts, bbox_to_anchor=(0.51, y_position - 0.45), frameon=False, title = "Mutations", title_fontsize = 7)
+legend3 = fig.legend(handles=handles_counts, bbox_to_anchor=(0.70, y_position - 0.45), frameon=False, title = "Copy number change and \nmutation percentages", title_fontsize = 7)
+legend4 = fig.legend(handles=handles_mut_shapes, bbox_to_anchor=(0.41, y_position - 0.53), frameon=False)
 
 # align the legend titlesshapes_dict = {}
 legend1._legend_box.align = "left"
