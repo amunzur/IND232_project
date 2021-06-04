@@ -5,16 +5,15 @@ Created on Fri May  7 16:43:00 2021
 
 @author: amunzur
 """
-
 import pandas as pd
-import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib import gridspec
+import matplotlib.patches as mpatches
+from matplotlib.lines import Line2D
 import numpy as np
-import pandas as pd
-import seaborn as sns
-from matplotlib.colors import LinearSegmentedColormap
 
+# load utilities functions to make the oncoprint
+exec(open("/groups/wyattgrp/users/amunzur/ind232/scripts/utilities_make_oncoprint.py").read())
 
 ########################
 # DEFINE VARIABLES
@@ -27,25 +26,7 @@ PATH_figure = "/groups/wyattgrp/users/amunzur/ind232/figures/ind232_oncoprint.pd
 
 patient_id = "" # leave blank (an empty string) to show all patients
 filter_ctDNA = True # True means only keep the sample with higher ctDNA content from a patient. Or write False to keep all samples
-sort_sample_type = True # gather together EOT and baseline samples. Otherwise no ordering
-
-fig_width = 5
-fig_height = 4
-
-########################
-# DEFINE FUNCTIONS
-########################
-
-def filter_df_ctDNA(df):
-    '''
-    Filter the data frame based on ctDNA content. From baseline or EOT samples only keep the one
-    with higher ctDNA content.
-    '''
-    # from the same patient only keep the higher of the two samples for both dfs 
-    idx = list(df.groupby(['Patient ID'], sort=False)['ctDNA fraction'].transform(max) == df["ctDNA fraction"])
-    df = df[idx].reset_index(drop = True)
-    
-    return(df)
+sort_sample_type = False # gather together EOT and baseline samples.
 
 ########################
 # READ FILES
@@ -67,17 +48,21 @@ if patient_id:
 else:
     pass
 
+del df_cn["PI3K"]
+df_muts = df_muts[df_muts.Gene != "PI3K"]
+
 ########################
 # MODIFY FILES
 ########################
 
 # make sure the genes are in the rows and samples are columns 
 if df_cn.index.name is None: # if the index hasn't been set
-    df_cn = df_cn.drop(columns=['Unnamed: 0', 'DNA repair defect']) # drop unneeded cols for the oncoprint
-    df_cn = pd.melt(df_cn, id_vars = ["Sample", "ctDNA fraction", "Mutation count"], var_name='Gene', value_name='Copy number')
+    df_cn = df_cn.drop(columns=['DNA repair defect']) # drop unneeded cols for the oncoprint
+    df_cn = pd.melt(df_cn, id_vars = ["Sample", "ctDNA fraction", "Mutation count", "Responder_status"], var_name='Gene', value_name='Copy number')
     
-for df in [df_cn, df_muts]: 
-    df[["Patient ID", "Sample type"]] = df["Sample"].str.split(pat = "_", expand = True).rename(columns = {0:"Patient ID", 1:"Sample type"}) # separate sample name from the patient id 
+# add two cols for patient id and sample
+df_cn[["Patient ID", "Sample type"]] = df_cn["Sample"].str.split(pat = "_", expand = True).rename(columns = {0:"Patient ID", 1:"Sample type"}) # separate sample name from the patient id 
+df_muts[["Patient ID", "Sample type"]] = df_muts["Sample"].str.split(pat = "_", expand = True).rename(columns = {0:"Patient ID", 1:"Sample type"}) # separate sample name from the patient id
 
 df_cn["ctDNA fraction"] = df_cn["ctDNA fraction"] * 100 # convert fraction to percentage 
 
@@ -101,121 +86,241 @@ if sort_sample_type == True:
     df_cn = df_cn.groupby("Sample type").apply(pd.DataFrame.sort_values, 'ctDNA fraction')
     # df_muts = df_muts.groupby("Sample type").apply(pd.DataFrame.sort_values, 'ctDNA fraction')
     
+    df_cn = df_cn.reset_index(drop = True)
+    df_muts = df_muts.reset_index(drop = True)
+    
 ########################
-# MAPPING
+# COLORS and SHAPES
 ########################
-
-# COLORS
 sample_type_dict = {"EOT": "#CC6677", "Baseline": "#DDCC77"}
 df_cn["sample_type_color"] = df_cn["Sample type"].map(sample_type_dict)
 
 cn_dict = {-2:'#3f60ac', -1:'#9cc5e9', 0:'#e6e7e8', 1:'#f59496', 2:'#ee2d24'}
 df_cn['Color'] = df_cn['Copy number'].map(cn_dict)
 
-mut_dict = {'Missense mutation':'#79B443', 'Frameshift mutation':'#BD4398', 'Splice site mutation':'#FFC907',
-               'Stopgain mutation':'#FFC907', 'Germline frameshift mutation':'#8c69ff', 'Germline stopgain mutation':'#FF5733'}
+mut_dict = {'Missense mutation':'#79B443', 'Splice site mutation':'#FFC907', 'Splice site mutation ': '#FFC907',
+               'Stopgain mutation':'#FFC907', 'Frameshift mutation':'#FFC907', 'Frameshift indel':'#5c32a8', 'Non-frameshift indel':'#BD4398',
+               'Germline frameshift mutation':'#FFC907', 'Germline stopgain mutation':'#FFC907', 'Germline missense mutation':'#79B443',
+               "Multiple somatic mutations": "black", "Structural rearrangement": "#FF5733"}
+
 df_muts['Color'] = df_muts['Effect'].map(mut_dict)
+
+shape_dict = {'Missense mutation':'s', 'Splice site mutation':'s', 'Splice site mutation ': 's',
+               'Stopgain mutation':'s', 'Frameshift mutation':'s', 'Frameshift indel':'s', 'Non-frameshift indel':'s',
+               'Germline frameshift mutation':'*', 'Germline stopgain mutation':'*', 'Germline missense mutation':'*',
+               "Multiple somatic mutations": "^", "Structural rearrangement": "s"}
+df_muts["shapes"] = df_muts["Effect"].map(shape_dict)
+
+# drop a patient 
+df_cn = df_cn[df_cn.Sample != "CALM-0002_EOT"]
+
+########################
+# DIVIDE THE DATAFRAMES
+########################
+# remove the SNV in CAVK-0005
+df_muts = df_muts.drop([42]) # CAVK-0005 - PTEN
+df_muts = df_muts.drop([10]) # CAVA-0003 - FOXA1
+df_muts = df_muts.drop([91]) # CAMP-0007 - APC
+df_muts = df_muts.drop([44, 45]) # CAVK-0005 - TP53, SPOP
+
+df_muts.at[100, "Color"] = "#C6DFAF"
+df_muts.at[26, "Color"] = "#C6DFAF"
+
+to_add = pd.DataFrame([["Not responsive", "CAVK-0005_Baseline", "APC", "Stopgain mutation", "CAVK-0005", "Baseline", "#FFC907", "s"], 
+                         ["Not responsive", "CAMP-0003_Baseline", "APC", "Missense mutation", "CAMP-0003", "Baseline", "#79B443", "s"], 
+                         ["Not responsive", "CAMP-0003_Baseline", "CTNNB1", "Missense mutation", "CAMP-0003", "Baseline", "#79B443", "s"], 
+                         ["Not responsive", "CAKO-0005_EOT", "CTNNB1", "Missense mutation", "CAKO-0005", "EOT", "#79B443", "s"], 
+                         ["Not responsive", "CAVA-0006_Baseline", "CDK12", "Missense mutation", "CAVA-0006", "Baseline", "#C6DFAF", "s"], 
+                         ["Not responsive", "CAVA-0008_Baseline", "FOXA1", "Missense mutation", "CAVA-0008", "Baseline", "#79B443", "s"], 
+                         ["Responsive", "CAVK-0006_Baseline", "ATM", "Missense mutation", "CAVK-0006", "Baseline", "#C6DFAF", "s"], 
+                         ["Not responsive", "CAMP-0003_Baseline", "TP53", "Splice site mutation", "CAMP-0003", "Baseline", "#FFC907", "s"], 
+                         ["Not responsive", "CAMP-0003_Baseline", "TP53", "Missense mutation", "CAMP-0003", "Baseline", "#79B443", "s"]])
+
+to_add.columns = df_muts.columns
+df_muts = df_muts.append(to_add, ignore_index = True)    
+
+df_cn.at[584, "Copy number"] = -1
+df_cn.at[584, "Color"] = "#9cc5e9"
+
+[df_cn1, df_cn2] = filter_df_by_col(df_cn, "Responder_status")
+[df_muts1, df_muts2] = filter_df_by_col(df_muts, "Responder_status")
+
+df_muts1 = df_muts1.drop([27, 87])
+
+# sort df_cn once more based on ctDNA fraction, from high to low
+df_cn1 = df_cn1.sort_values(by = ["ctDNA fraction"])
+df_cn2 = df_cn2.sort_values(by = ["ctDNA fraction"])
+
+# sort dfs based on patient id 
+# df_cn1 = df_cn1.sort_values('Sample')
+# df_cn2 = df_cn2.sort_values('Sample')
+
+# df_muts1 = df_muts1.sort_values('Sample')
+# df_muts2 = df_muts2.sort_values('Sample')
+
+repair_genes = ['MSH2', 'MSH6', 'BRCA2', 'CDK12', 'ATM']
+other_genes = ['AR', 'SPOP', 'FOXA1', 'TP53', 'RB1', 'PTEN', 'APC', 'CTNNB1']
+
+[df_cn1_repair, df_cn1_other] = filter_by_genes(df_cn1, repair_genes, other_genes)
+[df_cn2_repair, df_cn2_other] = filter_by_genes(df_cn2, repair_genes, other_genes)
+[df_muts1_repair, df_muts1_other] = filter_by_genes(df_muts1, repair_genes, other_genes)
+[df_muts2_repair, df_muts2_other] = filter_by_genes(df_muts2, repair_genes, other_genes)
+
+df_counts1_repair = plot_mut_and_cn_counts(df_cn1_repair, df_muts1_repair, drop = True) # not responsive
+df_counts1_other = plot_mut_and_cn_counts(df_cn1_other, df_muts1_other, drop = True) # not responsive
+
+df_counts2_repair = plot_mut_and_cn_counts(df_cn2_repair, df_muts2_repair, drop = True) # responsive
+df_counts2_other = plot_mut_and_cn_counts(df_cn2_other, df_muts2_other, drop = True) # responsive
+
+# make sure both dfs have the same genes, replace with 0 if exists in one df only
+# genes_to_add = df_counts1[~df_counts1.index.isin(df_counts2.index)].dropna().index.to_list()
+# df_zero = pd.DataFrame(0, index = genes_to_add, columns = df_counts1.columns) # df of 0s
+
+# df_counts2 = pd.concat([df_counts2, df_zero]) # update by adding a df of zeros to replace missing genes
+
+#Dict to map samples to columns on oncoprint  
+samples1 = df_cn1["Sample"].unique().tolist()
+samples2 = df_cn2["Sample"].unique().tolist()
+
+gene_pos_repair = {repair_genes[i]: list(range(0,len(repair_genes)))[i] for i in range(len(repair_genes))}
+gene_pos_other = {other_genes[i]: list(range(0,len(other_genes)))[i] for i in range(len(other_genes))}
+
+sample_pos1 = {samples1[i]: list(range(0,len(samples1)))[i] for i in range(len(samples1))}
+sample_pos2 = {samples2[i]: list(range(0,len(samples2)))[i] for i in range(len(samples2))}
+
+ordered_patients_list1 = [sample.split(sep = "_")[0] for sample in samples1]
+ordered_patients_list2 = [sample.split(sep = "_")[0] for sample in samples2]
+
+# order counts dfs based on the gene positions set above
+df_counts1_repair = df_counts1_repair.reindex(list(gene_pos_repair.keys()))
+df_counts1_other = df_counts1_other.reindex(list(gene_pos_other.keys()))
+
+df_counts2_repair = df_counts2_repair.reindex(list(gene_pos_repair.keys()))
+df_counts2_other = df_counts2_other.reindex(list(gene_pos_other.keys()))
+
+# calculate the PERCENTAGE instead of absolute counts
+df_counts1_repair = convert_counts_to_percentage(25, 2, 2, df_cn1_repair, df_counts1_repair)
+df_counts1_other = convert_counts_to_percentage(25, 2, 2, df_cn1_other, df_counts1_other)
+
+df_counts2_repair = convert_counts_to_percentage(25, 2, 2, df_cn2_repair, df_counts2_repair)
+df_counts2_other = convert_counts_to_percentage(25, 2, 2, df_cn2_other, df_counts2_other)
+
 
 ########################
 # PREPARE TO PLOT
-########################
-bar_height = 0.7
+########################    
+fig_width = 8
+fig_height = 12
+
+# plt.rcParams["font.family"] = "sans-serif"
+# plt.rcParams['font.sans-serif'] = ['Arial']
+from matplotlib import rc
+
+rc('font',**{'family':'sans-serif','sans-serif':['Arial']})
+
+plt.rcParams["font.size"] = "6"
+
+bar_height = 0.8
 bar_width = 0.7
-
-samples = df_cn["Sample"].unique().tolist()
-genes = df_cn['Gene'].unique().tolist()
-
-ordered_patients_list = [sample.split(sep = "_")[0] for sample in samples]
 
 # offset = -(bar_height/3)
 offset = -0.4
 
 fig = plt.figure(figsize=(fig_width, fig_height))
-gs  = gridspec.GridSpec(nrows=4, ncols=1, height_ratios = [2, 2, 0.4, 15], hspace = 0.1, wspace = 0)
+gs  = gridspec.GridSpec(nrows=5, ncols=2, height_ratios = [1.8, 1.8, 4, 7, 7], width_ratios = [7, 1.7], wspace = 0.02, hspace=0.02)
 # gs.update(wspace=0.015, hspace=0.05)# set the spacing between axes. 
 
-sub_top = fig.add_subplot(gs[0,0]) # ctDNA
-sub_mutcount = fig.add_subplot(gs[1,0]) # mut count
-sub_type = fig.add_subplot(gs[2,0]) # sample type 
-sub_bottom = fig.add_subplot(gs[3,0]) # heatmap
+top1 = fig.add_subplot(gs[0,0]) # ctDNA
+mutcount1 = fig.add_subplot(gs[1,0], sharex = top1) # mut count
+bottom1_repair = fig.add_subplot(gs[2,0], sharex = mutcount1) # heatmap - repair genes
+bottom1_other = fig.add_subplot(gs[3,0], sharex = mutcount1) # heatmap - other genes
 
-#Dict to map genes to row on oncoprint               
-gene_pos = {genes[i]: list(range(0,len(genes)))[i] for i in range(len(genes))}
-sample_pos = {samples[i]: list(range(0,len(samples)))[i] for i in range(len(samples))}
+top2 = fig.add_subplot(gs[0,1], sharey = top1) # ctDNA
+mutcount2 = fig.add_subplot(gs[1,1], sharex = top2, sharey = mutcount1) # mutcount
+bottom2_repair = fig.add_subplot(gs[2,1], sharex = mutcount2) #heatmap - repair genes
+bottom2_other = fig.add_subplot(gs[3,1], sharex = mutcount2) # heatmap - other genes
+
+sub_legend = fig.add_subplot(gs[4,:])
 
 ########################
 # PLOTTING
 ########################
 # Plot ctDNA fraction in the top subplot
-sub_top.bar(df_cn["Sample"], df_cn["ctDNA fraction"], color = "#202020", zorder = 3)
-
-# plot the sample types (EOT or baseline)
-sub_type.bar(x = df_cn["Sample"], height = bar_height, color = df_cn["sample_type_color"], width=0.8, edgecolor=None, linewidth=0, zorder = 3)
+top1.bar(df_cn1["Sample"], df_cn1["ctDNA fraction"], color = "#202020", zorder = 3)
+top2.bar(df_cn2["Sample"], df_cn2["ctDNA fraction"], color = "#202020", zorder = 3)
 
 # plot the mutation count 
-sub_mutcount.bar(df_cn["Sample"], df_cn["Mutation count"], color = "#202020", zorder = 3)
+mutcount1.bar(df_cn1["Sample"], df_cn1["Mutation count"], color = "#202020", zorder = 3)
+mutcount2.bar(df_cn2["Sample"], df_cn2["Mutation count"], color = "#202020", zorder = 3)
 
-# Plot copy numbers
-for sample in samples:
-    bottom = offset 
-    for gene in genes:
-        row = df_cn.loc[(df_cn['Gene'] == gene) & (df_cn['Sample'] == sample)]
-        color = row['Color'].values[0]
+# plot copy numbers
+plot_cn(samples1, repair_genes, df_cn1_repair, bottom1_repair, offset, bar_height, bar_width)
+plot_cn(samples1, other_genes, df_cn1_other, bottom1_other, offset, bar_height, bar_width)
 
-        sub_bottom.bar(sample, bar_height, bottom = bottom, color = color, zorder = 10, width = bar_width * 1.2)
+plot_cn(samples2, repair_genes, df_cn2_repair, bottom2_repair, offset, bar_height, bar_width)
+plot_cn(samples2, other_genes, df_cn2_other, bottom2_other, offset, bar_height, bar_width)
 
-        bottom += 1
+# plot mutations     
+plot_muts(sample_pos1, gene_pos_repair, df_muts1_repair, bottom1_repair, "vertical")
+plot_muts(sample_pos1, gene_pos_other, df_muts1_other, bottom1_other, "vertical")
 
-# Plot mutations
-for i, row in df_muts.iterrows():
-    sample = row['Sample']
-    mut_type = row['Effect']
-    gene = row['Gene']
-    color = row['Color']
-    marker_type = "s"
-    
-    if "germ" in mut_type: marker_type = "*"    
-    
-    # check if there is another mutation in the same sample/gene combination
-    x = [sample, gene] == df_muts[["Sample", "Gene"]]
-    if sum(x.all(axis = 1)) == 1: # ONE mutation only in the same sample and gene combination        
-        sub_bottom.scatter(x = sample_pos[sample], y = gene_pos[gene], c = color, s = 3, marker = marker_type, zorder = 100)
+plot_muts(sample_pos2, gene_pos_repair, df_muts2_repair, bottom2_repair, "vertical")
+plot_muts(sample_pos2, gene_pos_other, df_muts2_other, bottom2_other, "vertical")
 
-    elif sum(x.all(axis = 1)) == 2: # TWO mutations in the same sample and gene combination
-        sub_bottom.scatter(x = sample_pos[sample] + 0.08, y = gene_pos[gene] + 0.08, c = color, s = 3, marker = marker_type, zorder = 100)
-        sub_bottom.scatter(x = sample_pos[sample] - 0.04, y = gene_pos[gene] - 0.08, c = color, s = 3, marker = marker_type, zorder = 100)
-    
-    elif sum(x.all(axis = 1)) == 3: # THREE mutations 
-        sub_bottom.scatter(x = sample_pos[sample], y = gene_pos[gene], c = "black", s = 6, marker = "^", zorder = 100)
-        
 ########################
 # STYLING
 ########################
-sub_top.set_xticks([])
-sub_top.set_yticks([0, 50, 100])
-sub_top.set_yticklabels(["0", "50", "100"])
-sub_top.set_ylabel("ctDNA %", labelpad=17, rotation = 0, va = 'center')
-sub_top.grid(zorder = 0, linestyle='--', linewidth = 0.5)
+for ax in [top2, mutcount2]:
+    ax.xaxis.set_visible(False)
+    
+top1.set_xticks([])
+top1.set_yticks([0, 25, 50, 75, 100])
+top1.set_yticklabels(["0", "25", "50", "75", "100"])
+top1.set_ylabel("ctDNA %", labelpad=17, rotation = 0, va = 'center')
+top1.grid(zorder = 0, linestyle='--', linewidth = 0.5, axis = "y")
+top1.tick_params(labelbottom=False)
 
-sub_mutcount.set_xticks([])
-sub_mutcount.set_yticks([0, 25, 50])
-sub_mutcount.set_yticklabels(["0", "25", "50"])
-sub_mutcount.set_ylabel("Mutation \n count", labelpad=20, rotation = 0, va = 'center')
-sub_mutcount.grid(zorder = 0, linestyle='--', linewidth = 0.5)
+top2.set_yticks([0, 25, 50, 75, 100])
+top2.grid(zorder = 0, linestyle='--', linewidth = 0.5)
+plt.setp(top2.get_yticklabels(), visible=False) # remove tick labels from eot plot only
 
-sub_type.xaxis.set_visible(False)
-# sub_type.yaxis.set_visible(False)
-sub_mutcount.set_xticks([])
-sub_type.set_yticks([])
-sub_type.set_ylabel("Sample type", labelpad=30, rotation = 0, va = 'center')
+mutcount1.set_xticks([])
+mutcount1.set_yticks([0, 25, 50])
+mutcount1.set_yticklabels(["0", "25", "50"])
+mutcount1.set_ylabel("Total \nmutation \ncount", labelpad=20, rotation = 0, va = 'center')
+mutcount1.grid(zorder = 0, linestyle='--', linewidth = 0.5, axis = "y")
+mutcount1.tick_params(labelbottom=False)
 
-sub_bottom.tick_params(labelrotation = 90, direction = "out")
-sub_bottom.set_yticks(list(range(0, len(genes))))
-sub_bottom.set_yticklabels(genes, rotation = 0)
-sub_bottom.set_xticks(list(range(0, len(ordered_patients_list))))
-sub_bottom.set_xticklabels(ordered_patients_list)
+mutcount2.grid(zorder = 0, linestyle='--', linewidth = 0.5)
+plt.setp(mutcount2.get_yticklabels(), visible=False)
 
-for ax in [sub_top, sub_mutcount, sub_type, sub_bottom]: 
+bottom1_repair.tick_params(labelrotation = 90, direction = "out", pad = 3)
+bottom1_repair.set_yticks(list(range(0, len(repair_genes))))
+bottom1_repair.set_yticklabels(repair_genes, rotation = 0, ha = 'right')
+bottom1_repair.set_xlim([-1, len(samples1) - 0.5])
+
+bottom2_repair.yaxis.set_visible(False)
+bottom2_repair.tick_params(labelrotation = 90, direction = "out", pad = 7)
+bottom2_repair.set_xlim([-1, len(samples2) - 0.55])
+
+bottom1_other.tick_params(labelrotation = 90, direction = "out", pad = 3)
+bottom1_other.set_yticks(list(range(0, len(other_genes))))
+bottom1_other.set_yticklabels(other_genes, rotation = 0, ha = 'right')
+bottom1_other.set_xticks(list(range(0, len(ordered_patients_list1))))
+bottom1_other.set_xlim([-1, len(samples1) - 0.5])
+bottom1_other.set_xticklabels(ordered_patients_list1, ha = "center")
+
+bottom2_other.yaxis.set_visible(False)
+bottom2_other.tick_params(labelrotation = 90, direction = "out", pad = 3)
+bottom2_other.set_xticks(list(range(0, len(ordered_patients_list2))))
+bottom2_other.set_xticklabels(ordered_patients_list2, ha = "center")
+bottom2_other.set_xlim([-1, len(samples2) - 0.55])
+
+sub_legend.xaxis.set_visible(False)
+sub_legend.yaxis.set_visible(False)
+sub_legend.set_facecolor("none")
+
+for ax in [top1, top2, mutcount1, mutcount2, bottom1_repair, bottom2_repair, bottom1_other, bottom2_other, sub_legend]: 
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     ax.spines['bottom'].set_visible(False)
@@ -223,17 +328,64 @@ for ax in [sub_top, sub_mutcount, sub_type, sub_bottom]:
     
     ax.xaxis.set_ticks_position('none')
     ax.yaxis.set_ticks_position('none')
-    ax.tick_params(axis='both', which='major')
+    
+bottom2_other.set_xticklabels(ordered_patients_list2, ha = "center")
 
-    ax.set_xlim([-1, len(samples)])
+########################
+# LINES
+########################
+# plt.vlines(x = -2, ymin = 2.8, ymax = 6, color='black', linestyle='-')
+# plt.axvline(x = 0, ymin = 0.85, ymax = 0.99, color='black', linestyle='-')
 
-# set up font size 
-font = {'family' : 'normal', 'weight' : 'normal', 'size'   : 6}
-plt.rc('font', **font)
-# plt.subplots_adjust(left=0.1, right=0.9, bottom=0.1, top=0.1)
-fig.tight_layout(pad=2)
+
+
+y_position = 0.72
+# plt.axhline(y = y_position, xmin = 0.3, xmax = bottom1_repair.get_position().x1 + 0.06, color='black', linestyle='-')
+# plt.axhline(y = y_position, xmin = 0.83, xmax = 0.99, color='black', linestyle='-')
+
+# plt.text(0.35, y_position - 0.06, "Best response PD", fontsize = 9)
+# plt.text(0.88, y_position - 0.06, "PR/SD", fontsize = 9)
+    
+########################
+# LEGEND
+########################
+    
+legend_cn_dict = {"Deep deletion":'#3f60ac', "Deletion":'#9cc5e9', "Neutral":'#e6e7e8', "Gain":'#f59496', "Amplification":'#ee2d24'}
+
+mut_dict = {'Missense':'#79B443', 'Benign missense': '#C6DFAF', 'Splice site, stopgain, frameshift':'#FFC907', 'Frameshift indel':'#5c32a8', 'Non-frameshift indel':'#BD4398', "Structural rearrangement": "#FF5733"}
+
+mut_dict_shape = {'Somatic':'s', 'Germline':'*', '>2 mutations': '^'}
+mut_dict_shape_color = {'Somatic':'#B0B0B0', 'Germline':'#B0B0B0', '>2 mutations': 'black'}
+
+# legend1
+handles_cn = []
+for key in legend_cn_dict:
+    handle = mpatches.Patch(color = legend_cn_dict.get(key), label = key)
+    handles_cn.append(handle)
+
+# legend2
+handles_muts = []
+for key in mut_dict:   
+    handle = mpatches.Patch(color = mut_dict.get(key), label = key)
+    handles_muts.append(handle)
+
+# legend4
+handles_mut_shapes = []
+for key in mut_dict_shape:    
+    handle = Line2D([0], [0], linestyle = "none", marker = mut_dict_shape.get(key), label = key, markerfacecolor = mut_dict.get(key), color = mut_dict_shape_color.get(key), markersize=5)
+    handles_mut_shapes.append(handle)
+
+legend1 = fig.legend(handles=handles_cn, bbox_to_anchor=(0.28, y_position - 0.45), frameon=False, title = "Copy number variants", title_fontsize = 7)
+legend2 = fig.legend(handles=handles_muts, bbox_to_anchor=(0.51, y_position - 0.45), frameon=False, title = "Mutations", title_fontsize = 7)
+legend4 = fig.legend(handles=handles_mut_shapes, bbox_to_anchor=(0.41, y_position - 0.53), frameon=False)
+
+# align the legend titlesshapes_dict = {}
+legend1._legend_box.align = "left"
+legend2.get_title().set_position((-40, 0))
+
+
 fig.savefig("/groups/wyattgrp/users/amunzur/ind232/figures/fig.pdf", bbox_extra_artists=(), bbox_inches='tight')
-
+plt.show()
 
 
 
